@@ -102,6 +102,47 @@ impl EscrowContract {
         );
     }
 
+    pub fn approve_withdrawal(env: Env, release_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let current_approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        let approved = current_approved + release_amount;
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &approved);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("approve"), admin),
+            release_amount,
+        );
+    }
+
+    /// Execute an approved withdrawal. State is updated *before* the external
+    /// token transfer (checks-effects-interactions).
+    pub fn execute_withdrawal(env: Env, to: Address, release_amount: i128) {
+        let approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        if approved < release_amount {
+            panic!("Insufficient approved amount");
+        }
+
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
+
+        let asset: Address = env.storage().instance().get(&DataKey::Asset).unwrap();
+        let client = token::Client::new(&env, &asset);
+        client.transfer(&env.current_contract_address(), &to, &release_amount);
+
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("withdraw"), to),
+            release_amount,
+        );
+    }
+
+    pub fn get_approved_withdrawal(env: Env) -> i128 {
+        env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0)
+    }
+
     pub fn approve_milestone_withdrawal(env: Env, caller: Address, amount: i128) {
         caller.require_auth();
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
@@ -139,14 +180,16 @@ impl EscrowContract {
             panic!("No contribution to refund");
         }
 
+        // Checks-effects-interactions: clear the contributor's balance and
+        // reduce the total before handing control to the token contract.
+        let new_total = total_raised.saturating_sub(amount);
+        env.storage().instance().set(&DataKey::TotalRaised, &new_total);
+        env.storage().persistent().set(&balance_key, &0i128);
+
         let asset: Address = env.storage().instance().get(&DataKey::Asset).unwrap();
         let client = token::Client::new(&env, &asset);
         client.transfer(&env.current_contract_address(), &contributor, &amount);
 
-        let new_total = total_raised.saturating_sub(amount);
-        env.storage().instance().set(&DataKey::TotalRaised, &new_total);
-
-        env.storage().persistent().set(&balance_key, &0i128);
         env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
 
         env.events().publish(

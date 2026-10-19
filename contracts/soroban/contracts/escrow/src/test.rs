@@ -376,3 +376,48 @@ fn test_failed_campaign_withdrawal_blocked() {
     client.withdraw(&admin, &300);
 }
 
+
+#[test]
+fn test_failed_execute_withdrawal_leaves_approval_unchanged() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let (token_client, stellar_client) = create_token_contract(&env, &token_admin);
+    let contributor = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    stellar_client.mint(&contributor, &500);
+
+    let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
+    client.deposit(&contributor, &500);
+
+    // Approve more than the contract holds so the token transfer fails.
+    client.approve_withdrawal(&1000);
+    assert!(client.try_execute_withdrawal(&recipient, &1000).is_err());
+    // The approval must not be consumed by a failed transfer.
+    assert_eq!(client.get_approved_withdrawal(), 1000);
+}
+
+#[test]
+fn test_refund_clears_balance_without_leaking_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let (token_client, stellar_client) = create_token_contract(&env, &token_admin);
+    let contributor = Address::generate(&env);
+    stellar_client.mint(&contributor, &400);
+
+    let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
+    client.deposit(&contributor, &400);
+
+    env.ledger().set_timestamp(600);
+    client.refund(&contributor);
+
+    assert_eq!(token_client.balance(&contributor), 400);
+    assert_eq!(client.get_total_raised(), 0);
+}
