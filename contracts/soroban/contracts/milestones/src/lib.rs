@@ -91,6 +91,8 @@ pub struct MilestonesContract;
 impl MilestonesContract {
     pub fn initialize(
         env: Env,
+        deployer: Address,
+        salt: BytesN<32>,
         creator: Address,
         platform: Address,
         escrow: Address,
@@ -99,6 +101,17 @@ impl MilestonesContract {
         if env.storage().instance().has(&DataKey::Initialized) {
             panic!("Already initialized");
         }
+
+        // Bind initialization to the deploying account so nobody can
+        // front-run it and take over Creator/Platform.
+        let expected = env
+            .deployer()
+            .with_address(deployer.clone(), salt)
+            .deployed_address();
+        if expected != env.current_contract_address() {
+            panic!("Caller is not the contract deployer");
+        }
+        deployer.require_auth();
 
         validate_plan(&milestones);
 

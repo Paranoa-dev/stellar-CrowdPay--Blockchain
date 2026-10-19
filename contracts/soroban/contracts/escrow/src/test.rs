@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    token, Address, Env,
+    token, Address, BytesN, Env,
 };
 
 fn create_token_contract<'a>(env: &Env, admin: &Address) -> (token::Client<'a>, token::StellarAssetClient<'a>) {
@@ -21,9 +21,15 @@ fn setup_escrow<'a>(
     deadline: u64,
     asset: &Address,
 ) -> EscrowContractClient<'a> {
-    let contract_id = env.register(EscrowContract, ());
+    let deployer = Address::generate(env);
+    let salt = BytesN::from_array(env, &[7u8; 32]);
+    let contract_id = env
+        .deployer()
+        .with_address(deployer.clone(), salt.clone())
+        .deployed_address();
+    env.register_at(&contract_id, EscrowContract, ());
     let client = EscrowContractClient::new(env, &contract_id);
-    client.initialize(admin, &1u64, &target, &deadline, asset);
+    client.initialize(&deployer, &salt, admin, &1u64, &target, &deadline, asset);
     client
 }
 
@@ -53,7 +59,8 @@ fn test_double_initialize_panics() {
     let (token_client, _) = create_token_contract(&env, &token_admin);
 
     let client = setup_escrow(&env, &admin, 1000, 1000, &token_client.address);
-    client.initialize(&admin, &2u64, &2000, &2000, &token_client.address);
+    let salt = BytesN::from_array(&env, &[0u8; 32]);
+    client.initialize(&admin, &salt, &admin, &2u64, &2000, &2000, &token_client.address);
 }
 
 #[test]
@@ -206,12 +213,15 @@ fn test_execute_withdrawal_exceeding_approved_fails() {
 #[test]
 fn test_approve_withdrawal_auth() {
     let env = Env::default();
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let token_admin = Address::generate(&env);
     let (token_client, _) = create_token_contract(&env, &token_admin);
 
     let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
 
+    // Ignore the deployer auth recorded during initialization.
+    env.set_auths(&[]);
     env.mock_all_auths();
     client.approve_withdrawal(&500);
     assert_eq!(env.auths().len(), 1);
@@ -376,3 +386,26 @@ fn test_failed_campaign_withdrawal_blocked() {
     client.withdraw(&admin, &300);
 }
 
+
+#[test]
+#[should_panic(expected = "Caller is not the contract deployer")]
+fn test_initialize_rejects_non_deployer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let (token_client, _) = create_token_contract(&env, &token_admin);
+
+    let deployer = Address::generate(&env);
+    let salt = BytesN::from_array(&env, &[7u8; 32]);
+    let contract_id = env
+        .deployer()
+        .with_address(deployer.clone(), salt.clone())
+        .deployed_address();
+    env.register_at(&contract_id, EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let attacker = Address::generate(&env);
+    client.initialize(&attacker, &salt, &admin, &1u64, &1000i128, &500u64, &token_client.address);
+}

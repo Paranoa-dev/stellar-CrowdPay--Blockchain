@@ -15,6 +15,40 @@ fn create_token_contract<'a>(env: &Env, admin: &Address) -> (token::Client<'a>, 
     )
 }
 
+fn deploy_milestones(env: &Env) -> (MilestonesContractClient, Address, BytesN<32>) {
+    let deployer = Address::generate(env);
+    let salt = BytesN::from_array(env, &[9u8; 32]);
+    let id = env
+        .deployer()
+        .with_address(deployer.clone(), salt.clone())
+        .deployed_address();
+    env.register_at(&id, MilestonesContract, ());
+    (
+        MilestonesContractClient::new(env, &id),
+        deployer,
+        salt,
+    )
+}
+
+fn deploy_escrow<'a>(
+    env: &'a Env,
+    admin: &Address,
+    target: i128,
+    deadline: u64,
+    asset: &Address,
+) -> EscrowContractClient<'a> {
+    let deployer = Address::generate(env);
+    let salt = BytesN::from_array(env, &[7u8; 32]);
+    let id = env
+        .deployer()
+        .with_address(deployer.clone(), salt.clone())
+        .deployed_address();
+    env.register_at(&id, EscrowContract, ());
+    let client = EscrowContractClient::new(env, &id);
+    client.initialize(&deployer, &salt, admin, &1u64, &target, &deadline, asset);
+    client
+}
+
 fn sample_hash(env: &Env, byte: u8) -> BytesN<32> {
     BytesN::from_array(env, &[byte; 32])
 }
@@ -34,10 +68,10 @@ fn plan(env: &Env, bps: &[u32]) -> Vec<Milestone> {
 
 fn try_init(bps: &[u32]) -> bool {
     let env = Env::default();
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    env.mock_all_auths();
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (a, b, c) = (Address::generate(&env), Address::generate(&env), Address::generate(&env));
-    client.try_initialize(&a, &b, &c, &plan(&env, bps)).is_ok()
+    client.try_initialize(&deployer, &salt, &a, &b, &c, &plan(&env, bps)).is_ok()
 }
 
 #[test]
@@ -91,16 +125,15 @@ fn test_double_initialize_panics() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
     let p = plan(&env, &[5000, 5000]);
-    client.initialize(&creator, &platform, &escrow, &p);
-    client.initialize(&creator, &platform, &escrow, &p);
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &p);
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &p);
 }
 
 #[test]
@@ -108,15 +141,14 @@ fn test_get_milestone_and_get_all_milestones() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
     let p = plan(&env, &[3000, 7000]);
-    client.initialize(&creator, &platform, &escrow, &p);
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &p);
 
     let m0 = client.get_milestone(&0);
     assert_eq!(m0.release_bps, 3000);
@@ -136,15 +168,14 @@ fn test_submit_milestone_workflow() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
     let p = plan(&env, &[5000, 5000]);
-    client.initialize(&creator, &platform, &escrow, &p);
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &p);
 
     let evidence = sample_hash(&env, 99);
     client.submit_milestone(&0, &evidence);
@@ -159,15 +190,14 @@ fn test_submit_milestone_auth() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
     let p = plan(&env, &[10000]);
-    client.initialize(&creator, &platform, &escrow, &p);
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &p);
 
     let evidence = sample_hash(&env, 1);
     client.submit_milestone(&0, &evidence);
@@ -181,14 +211,13 @@ fn test_submit_already_submitted_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
-    client.initialize(&creator, &platform, &escrow, &plan(&env, &[10000]));
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &plan(&env, &[10000]));
 
     let evidence = sample_hash(&env, 1);
     client.submit_milestone(&0, &evidence);
@@ -201,14 +230,13 @@ fn test_submit_invalid_index_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
-    client.initialize(&creator, &platform, &escrow, &plan(&env, &[10000]));
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &plan(&env, &[10000]));
 
     let evidence = sample_hash(&env, 1);
     client.submit_milestone(&5, &evidence);
@@ -219,14 +247,13 @@ fn test_reject_and_resubmit_milestone() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
-    client.initialize(&creator, &platform, &escrow, &plan(&env, &[10000]));
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &plan(&env, &[10000]));
 
     // Submit milestone
     let ev1 = sample_hash(&env, 1);
@@ -252,14 +279,13 @@ fn test_reject_pending_milestone_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
-    client.initialize(&creator, &platform, &escrow, &plan(&env, &[10000]));
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &plan(&env, &[10000]));
 
     let reason = sample_hash(&env, 0xEE);
     client.reject_milestone(&0, &reason);
@@ -271,14 +297,13 @@ fn test_approve_pending_milestone_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let id = env.register(MilestonesContract, ());
-    let client = MilestonesContractClient::new(&env, &id);
+    let (client, deployer, salt) = deploy_milestones(&env);
     let (creator, platform, escrow) = (
         Address::generate(&env),
         Address::generate(&env),
         Address::generate(&env),
     );
-    client.initialize(&creator, &platform, &escrow, &plan(&env, &[10000]));
+    client.initialize(&deployer, &salt, &creator, &platform, &escrow, &plan(&env, &[10000]));
 
     client.approve_milestone(&0);
 }
@@ -299,18 +324,16 @@ fn test_end_to_end_milestone_release_with_escrow() {
     stellar_client.mint(&contributor, &1000);
 
     // Register Milestones contract and Escrow contract
-    let milestones_id = env.register(MilestonesContract, ());
-    let milestones_client = MilestonesContractClient::new(&env, &milestones_id);
+    // Register Milestones contract and Escrow contract
+    let (milestones_client, m_deployer, m_salt) = deploy_milestones(&env);
+    let milestones_id = milestones_client.address.clone();
 
-    let escrow_id = env.register(EscrowContract, ());
-    let escrow_client = EscrowContractClient::new(&env, &escrow_id);
-
-    // Initialize Escrow with Milestones contract address as admin
-    escrow_client.initialize(&milestones_id, &1u64, &1000i128, &500u64, &token_client.address);
+    let escrow_client = deploy_escrow(&env, &milestones_id, 1000, 500, &token_client.address);
+    let escrow_id = escrow_client.address.clone();
 
     // Initialize Milestones contract with 3 milestones: 30%, 30%, 40%
     let p = plan(&env, &[3000, 3000, 4000]);
-    milestones_client.initialize(&creator, &platform, &escrow_id, &p);
+    milestones_client.initialize(&m_deployer, &m_salt, &creator, &platform, &escrow_id, &p);
 
     // Contributor deposits 1000 into Escrow
     escrow_client.deposit(&contributor, &1000);
@@ -368,15 +391,14 @@ fn test_end_to_end_dust_sweeping_on_final_release() {
     // 100 tokens raised total across 3333, 3333, 3334 bps
     stellar_client.mint(&contributor, &100);
 
-    let milestones_id = env.register(MilestonesContract, ());
-    let milestones_client = MilestonesContractClient::new(&env, &milestones_id);
+    let (milestones_client, m_deployer, m_salt) = deploy_milestones(&env);
+    let milestones_id = milestones_client.address.clone();
 
-    let escrow_id = env.register(EscrowContract, ());
-    let escrow_client = EscrowContractClient::new(&env, &escrow_id);
+    let escrow_client = deploy_escrow(&env, &milestones_id, 100, 500, &token_client.address);
+    let escrow_id = escrow_client.address.clone();
 
-    escrow_client.initialize(&milestones_id, &1u64, &100i128, &500u64, &token_client.address);
     let p = plan(&env, &[3333, 3333, 3334]);
-    milestones_client.initialize(&creator, &platform, &escrow_id, &p);
+    milestones_client.initialize(&m_deployer, &m_salt, &creator, &platform, &escrow_id, &p);
 
     escrow_client.deposit(&contributor, &100);
 
@@ -395,4 +417,26 @@ fn test_end_to_end_dust_sweeping_on_final_release() {
     milestones_client.approve_milestone(&2);
     assert_eq!(token_client.balance(&creator), 100);
     assert_eq!(token_client.balance(&escrow_id), 0);
+}
+
+#[test]
+fn initialize_rejects_non_deployer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _deployer, salt) = deploy_milestones(&env);
+    let (creator, platform, escrow) = (
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    );
+    let attacker = Address::generate(&env);
+    let result = client.try_initialize(
+        &attacker,
+        &salt,
+        &creator,
+        &platform,
+        &escrow,
+        &plan(&env, &[10000]),
+    );
+    assert!(result.is_err());
 }

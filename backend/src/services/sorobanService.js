@@ -131,14 +131,17 @@ function isProvisioningConfigured() {
 
 async function deployContract(wasmHash, signerSecret) {
   const signer = Keypair.fromSecret(signerSecret);
-  return submitOperation(
+  // Keep the salt so initialize can prove this account deployed the contract.
+  const salt = crypto.randomBytes(32);
+  const address = await submitOperation(
     Operation.createCustomContract({
       address: new Address(signer.publicKey()),
       wasmHash: Buffer.from(wasmHash, 'hex'),
-      salt: crypto.randomBytes(32),
+      salt,
     }),
     signerSecret
   );
+  return { address, salt };
 }
 
 /**
@@ -159,8 +162,10 @@ async function provisionCampaignContracts({
   const signerSecret = process.env.PLATFORM_SECRET_KEY;
   const platformPublicKey = Keypair.fromSecret(signerSecret).publicKey();
 
-  const escrowId = await deployContract(process.env.ESCROW_WASM_HASH, signerSecret);
-  const milestonesId = await deployContract(process.env.MILESTONES_WASM_HASH, signerSecret);
+  const escrowDeployment = await deployContract(process.env.ESCROW_WASM_HASH, signerSecret);
+  const milestonesDeployment = await deployContract(process.env.MILESTONES_WASM_HASH, signerSecret);
+  const escrowId = escrowDeployment.address;
+  const milestonesId = milestonesDeployment.address;
 
   // Never proceed with (or persist) IDs that are not valid contract StrKeys.
   assertValidContractId(escrowId, { field: 'escrowContractId' });
@@ -176,6 +181,8 @@ async function provisionCampaignContracts({
     contractId: escrowId,
     method: 'initialize',
     args: [
+      new Address(platformPublicKey).toScVal(),
+      xdr.ScVal.scvBytes(Buffer.from(escrowDeployment.salt)),
       new Address(milestonesId).toScVal(),
       nativeToScVal(campaignNumericId, { type: 'u64' }),
       nativeToScVal(targetStroops, { type: 'i128' }),
@@ -189,6 +196,8 @@ async function provisionCampaignContracts({
     contractId: milestonesId,
     method: 'initialize',
     args: [
+      new Address(platformPublicKey).toScVal(),
+      xdr.ScVal.scvBytes(Buffer.from(milestonesDeployment.salt)),
       new Address(creatorPublicKey).toScVal(),
       new Address(platformPublicKey).toScVal(),
       new Address(escrowId).toScVal(),

@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, token};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, token};
 
 // ~1 year in ledgers (5s per ledger): 6_312_000. Use a safe ceiling.
 const INSTANCE_TTL_BUMP: u32 = 6_312_000;
@@ -29,10 +29,32 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    pub fn initialize(env: Env, admin: Address, campaign_id: u64, target: i128, deadline: u64, asset: Address) {
+    pub fn initialize(
+        env: Env,
+        deployer: Address,
+        salt: BytesN<32>,
+        admin: Address,
+        campaign_id: u64,
+        target: i128,
+        deadline: u64,
+        asset: Address,
+    ) {
         if env.storage().instance().has(&DataKey::IsInitialized) {
             panic!("Contract is already initialized");
         }
+
+        // Bind initialization to the account that actually deployed this
+        // contract, so a third party cannot front-run initialize and seize
+        // admin rights over the campaign escrow.
+        let expected = env
+            .deployer()
+            .with_address(deployer.clone(), salt)
+            .deployed_address();
+        if expected != env.current_contract_address() {
+            panic!("Caller is not the contract deployer");
+        }
+        deployer.require_auth();
+
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::CampaignId, &campaign_id);
         env.storage().instance().set(&DataKey::Target, &target);
@@ -99,6 +121,40 @@ impl EscrowContract {
         env.events().publish(
             (symbol_short!("withdraw"), to),
             amount,
+        );
+    }
+
+    pub fn approve_withdrawal(env: Env, release_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let current_approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        let approved = current_approved + release_amount;
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &approved);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("approve"), admin),
+            release_amount,
+        );
+    }
+
+    pub fn execute_withdrawal(env: Env, to: Address, release_amount: i128) {
+        let approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        if approved < release_amount {
+            panic!("Insufficient approved amount");
+        }
+
+        let asset: Address = env.storage().instance().get(&DataKey::Asset).unwrap();
+        let client = token::Client::new(&env, &asset);
+        client.transfer(&env.current_contract_address(), &to, &release_amount);
+
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("withdraw"), to),
+            release_amount,
         );
     }
 
