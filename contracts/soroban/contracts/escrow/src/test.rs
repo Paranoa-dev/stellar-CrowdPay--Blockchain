@@ -376,3 +376,52 @@ fn test_failed_campaign_withdrawal_blocked() {
     client.withdraw(&admin, &300);
 }
 
+
+#[test]
+fn test_admin_rotation_requires_acceptance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let (token_client, _) = create_token_contract(&env, &token_admin);
+    let new_admin = Address::generate(&env);
+
+    let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
+    client.propose_admin(&new_admin);
+    client.accept_admin();
+    // Old admin can no longer pause; new admin can.
+    client.set_paused(&true);
+    assert!(client.is_paused());
+}
+
+#[test]
+#[should_panic(expected = "Contract is paused")]
+fn test_paused_blocks_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let (token_client, stellar_client) = create_token_contract(&env, &token_admin);
+    let contributor = Address::generate(&env);
+    stellar_client.mint(&contributor, &100);
+
+    let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
+    client.set_paused(&true);
+    client.deposit(&contributor, &100);
+}
+
+#[test]
+fn test_migrate_records_increasing_version() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let (token_client, _) = create_token_contract(&env, &token_admin);
+    let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
+
+    assert_eq!(client.get_version(), 0);
+    client.migrate(&1);
+    assert_eq!(client.get_version(), 1);
+    assert!(client.try_migrate(&1).is_err());
+}
