@@ -148,16 +148,16 @@ fn test_approve_and_execute_withdrawal() {
     client.deposit(&contributor, &1000);
 
     // Approve partial withdrawal of 400
-    client.approve_withdrawal(&400);
+    client.approve_withdrawal(&admin, &400);
 
     // Execute partial withdrawal of 400 to recipient
-    client.execute_withdrawal(&recipient, &400);
+    client.execute_withdrawal(&admin, &recipient, &400);
     assert_eq!(token_client.balance(&recipient), 400);
     assert_eq!(token_client.balance(&client.address), 600);
 
     // Approve next withdrawal of 600
-    client.approve_withdrawal(&600);
-    client.execute_withdrawal(&recipient, &600);
+    client.approve_withdrawal(&admin, &600);
+    client.execute_withdrawal(&admin, &recipient, &600);
     assert_eq!(token_client.balance(&recipient), 1000);
     assert_eq!(token_client.balance(&client.address), 0);
 }
@@ -179,7 +179,7 @@ fn test_execute_withdrawal_without_approval_fails() {
     let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
     client.deposit(&contributor, &1000);
 
-    client.execute_withdrawal(&recipient, &100);
+    client.execute_withdrawal(&admin, &recipient, &100);
 }
 
 #[test]
@@ -199,8 +199,8 @@ fn test_execute_withdrawal_exceeding_approved_fails() {
     let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
     client.deposit(&contributor, &1000);
 
-    client.approve_withdrawal(&300);
-    client.execute_withdrawal(&recipient, &301);
+    client.approve_withdrawal(&admin, &300);
+    client.execute_withdrawal(&admin, &recipient, &301);
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn test_approve_withdrawal_auth() {
     let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
 
     env.mock_all_auths();
-    client.approve_withdrawal(&500);
+    client.approve_withdrawal(&admin, &500);
     assert_eq!(env.auths().len(), 1);
     assert_eq!(env.auths()[0].0, admin);
 }
