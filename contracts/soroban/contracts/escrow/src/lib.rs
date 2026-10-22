@@ -102,9 +102,17 @@ impl EscrowContract {
         );
     }
 
+    /// Approve a withdrawal. Only allowed once the campaign has succeeded
+    /// (target reached); failed campaigns must remain refundable.
     pub fn approve_withdrawal(env: Env, release_amount: i128) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+
+        let total_raised: i128 = env.storage().instance().get(&DataKey::TotalRaised).unwrap_or(0);
+        let target: i128 = env.storage().instance().get(&DataKey::Target).unwrap();
+        if total_raised < target {
+            panic!("Campaign has not succeeded");
+        }
 
         let current_approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
         let approved = current_approved + release_amount;
@@ -117,30 +125,46 @@ impl EscrowContract {
         );
     }
 
-    /// Execute an approved withdrawal. State is updated *before* the external
-    /// token transfer (checks-effects-interactions).
+    /// Revoke a previously granted approval. Admin-only and bounded by the
+    /// currently approved amount.
+    pub fn revoke_withdrawal(env: Env, release_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        if release_amount <= 0 {
+            panic!("Amount must be positive");
+        }
+        let approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        if release_amount > approved {
+            panic!("Cannot revoke more than approved");
+        }
+
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("revoke"), admin),
+            release_amount,
+        );
+    }
+
     pub fn execute_withdrawal(env: Env, to: Address, release_amount: i128) {
         let approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
         if approved < release_amount {
             panic!("Insufficient approved amount");
         }
 
-        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
-
         let asset: Address = env.storage().instance().get(&DataKey::Asset).unwrap();
         let client = token::Client::new(&env, &asset);
         client.transfer(&env.current_contract_address(), &to, &release_amount);
 
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
         env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
 
         env.events().publish(
             (symbol_short!("withdraw"), to),
             release_amount,
         );
-    }
-
-    pub fn get_approved_withdrawal(env: Env) -> i128 {
-        env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0)
     }
 
     pub fn approve_milestone_withdrawal(env: Env, caller: Address, amount: i128) {

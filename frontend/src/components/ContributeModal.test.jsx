@@ -124,12 +124,8 @@ describe('ContributeModal form', () => {
   });
 
   it('validates cumulative per-contributor cap', async () => {
-    api.getContributions.mockResolvedValue({
-      contributions: [{ sender_public_key: 'GUSER', amount: '30' }],
-    });
     const user = userEvent.setup();
-    renderModal({ max_per_user: '50' });
-    await waitFor(() => expect(api.getContributions).toHaveBeenCalled());
+    renderModal({ max_per_user: '50', user_contributed_amount: 30 });
     await user.type(amountInput(), '25');
     await user.click(screen.getByRole('button', { name: /confirm payment/i }));
     expect(

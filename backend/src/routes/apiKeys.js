@@ -3,6 +3,7 @@ const router = require('express').Router();
 const db = require('../config/database');
 const { requireAuth } = require('../middleware/auth');
 const { hashApiKey } = require('../middleware/auth');
+const { sendErrorResponse } = require('../middleware/errorHandler');
 
 const ALLOWED_SCOPES = new Set(['read', 'write', 'withdrawals', 'developer', 'full']);
 
@@ -152,7 +153,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
      RETURNING id`,
     [req.params.id, req.user.userId]
   );
-  if (!rows.length) return res.status(404).json({ error: 'API key not found' });
+  if (!rows.length) return sendErrorResponse(res, 404, 'API key not found');
   res.json({ revoked: true, id: rows[0].id });
 });
 

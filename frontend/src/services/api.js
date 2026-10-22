@@ -150,25 +150,27 @@ async function refresh() {
   }
 
   refreshPromise = (async () => {
-    const res = await fetch(`${BASE}/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-    });
+    try {
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
 
-    if (!res.ok) {
-      const text = await res.text();
-      let error = "Refresh failed";
-      try {
-        const data = JSON.parse(text);
-        error = data.error || error;
-      } catch {}
+      if (!res.ok) {
+        const text = await res.text();
+        let error = "Refresh failed";
+        try {
+          const data = JSON.parse(text);
+          error = data.error || error;
+        } catch {}
+        throw new Error(error);
+      }
+
+      const data = await res.json();
+      return data;
+    } finally {
       refreshPromise = null;
-      throw new Error(error);
     }
-
-    const data = await res.json();
-    refreshPromise = null;
-    return data;
   })();
 
   return refreshPromise;

@@ -6,14 +6,12 @@ import {
   requestAccess,
   signTransaction,
 } from '@stellar/freighter-api';
-import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { stellarExpertTxUrl } from '../config/stellar';
 import { calculateFee } from '../lib/amounts';
 
 export default function ContributeModal({ campaign, onClose, onSuccess, guestFreighterMode = false }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
   const [amount, setAmount] = useState('');
   const [sendAsset, setSendAsset] = useState(campaign.asset_type);
   const [paymentMethod, setPaymentMethod] = useState(guestFreighterMode ? 'freighter' : 'custodial');
@@ -35,7 +33,6 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
   }, []);
   const [freighterAvailable, setFreighterAvailable] = useState(false);
   const [freighterChecked, setFreighterChecked] = useState(false);
-  const [existingContributions, setExistingContributions] = useState([]);
   const [displayName, setDisplayName] = useState('');
   const anchorPopupRef = useRef(null);
 
@@ -53,11 +50,17 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
   const isPathPayment = effectiveSendAsset !== campaign.asset_type;
   const destAmount = amount.trim();
 
+  // Authoritative cumulative contribution total for the current user, returned
+  // by the backend on the campaign payload. The per-user limit is enforced
+  // against this total — never by summing a paginated contributions list (#176).
+  const contributedSoFar = Number(campaign.user_contributed_amount) || 0;
+  const perUserRemaining = campaign.max_per_user
+    ? Math.max(0, Number(campaign.max_per_user) - contributedSoFar)
+    : 0;
 
-  // Fetch anchor info and existing contributions on mount
+  // Fetch anchor info on mount (the per-user cap total comes from the campaign payload)
   useEffect(() => {
     api.getAnchorInfo().then(setAnchorInfo).catch(() => {});
-    api.getContributions(campaign.id, { limit: 100 }).then((d) => setExistingContributions(d.contributions || [])).catch(() => {});
   }, [campaign.id]);
 
   // Check Freighter availability
@@ -342,15 +345,12 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
       return;
     }
     if (campaign.max_per_user) {
-      const existingSum = user?.wallet_public_key
-        ? existingContributions
-            .filter((c) => c.sender_public_key === user.wallet_public_key)
-            .reduce((sum, c) => sum + Number(c.amount), 0)
-        : 0;
-      if (existingSum + amountNum > Number(campaign.max_per_user)) {
+      const existingSum = contributedSoFar;
+      const maxPerUser = Number(campaign.max_per_user);
+      if (existingSum + amountNum > maxPerUser) {
         setError(t('contribute.aboveMaximumPerUser', {
           existing: existingSum,
-          limit: campaign.max_per_user,
+          limit: maxPerUser,
           asset: campaign.asset_type,
         }));
         return;
@@ -597,29 +597,21 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
                         {campaign.max_contribution && (
                           <li>{t('contribute.limitMax', { amount: Number(campaign.max_contribution).toLocaleString(), asset: campaign.asset_type })}</li>
                         )}
-                        {campaign.max_per_user && (() => {
-                          const existingSum = user?.wallet_public_key
-                            ? existingContributions
-                                .filter((c) => c.sender_public_key === user.wallet_public_key)
-                                .reduce((sum, c) => sum + Number(c.amount), 0)
-                            : 0;
-                          const remaining = Math.max(0, Number(campaign.max_per_user) - existingSum);
-                          return (
-                            <li>
-                              {existingSum > 0
-                                ? t('contribute.limitPerUserRemaining', {
-                                    amount: Number(campaign.max_per_user).toLocaleString(),
-                                    asset: campaign.asset_type,
-                                    existing: existingSum.toLocaleString(),
-                                    remaining: remaining.toLocaleString(),
-                                  })
-                                : t('contribute.limitPerUser', {
-                                    amount: Number(campaign.max_per_user).toLocaleString(),
-                                    asset: campaign.asset_type,
-                                  })}
-                            </li>
-                          );
-                        })()}
+                        {campaign.max_per_user && (
+                          <li>
+                            {contributedSoFar > 0
+                              ? t('contribute.limitPerUserRemaining', {
+                                  amount: Number(campaign.max_per_user).toLocaleString(),
+                                  asset: campaign.asset_type,
+                                  existing: contributedSoFar.toLocaleString(),
+                                  remaining: perUserRemaining.toLocaleString(),
+                                })
+                              : t('contribute.limitPerUser', {
+                                  amount: Number(campaign.max_per_user).toLocaleString(),
+                                  asset: campaign.asset_type,
+                                })}
+                          </li>
+                        )}
                       </ul>
                     </span>
                   )}

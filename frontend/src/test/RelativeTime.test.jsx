@@ -92,6 +92,24 @@ describe('useRelativeTime Hook & RelativeTime Component', () => {
     expect(el.textContent).toBe(expected30sAgo);
   });
 
+  it('shares a single interval across multiple instances', () => {
+    const now = Date.now();
+    vi.setSystemTime(now);
+    const date = new Date(now - 10000).toISOString();
+
+    const { unmount } = render(
+      <div>
+        <RelativeTime date={date} />
+        <RelativeTime date={date} />
+        <RelativeTime date={date} />
+      </div>
+    );
+
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('handles invalid or empty dates gracefully', () => {
     const { container: container1 } = render(<RelativeTime date="" />);
     expect(container1.firstChild).toBeNull();

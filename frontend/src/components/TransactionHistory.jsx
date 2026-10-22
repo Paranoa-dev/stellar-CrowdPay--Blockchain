@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '../services/api';
 import { stellarExpertTxUrl } from '../config/stellar';
 import RelativeTime from './RelativeTime';
@@ -23,7 +24,16 @@ function KindBadge({ kind }) {
   );
 }
 
+const STATUS_LABEL_KEYS = {
+  indexed: 'transactionStatus.indexed',
+  submitted: 'transactionStatus.submitted',
+  failed: 'transactionStatus.failed',
+  pending_signatures: 'transactionStatus.pendingSignatures',
+};
+
 function StatusPill({ status }) {
+  const { t } = useTranslation();
+  if (!status) return null;
   const map = {
     indexed:            { bg: '#dcfce7', color: '#166534' },
     submitted:          { bg: '#dbeafe', color: '#1e40af' },
@@ -31,8 +41,8 @@ function StatusPill({ status }) {
     pending_signatures: { bg: '#fef3c7', color: '#92400e' },
   };
   const style = map[status] || { bg: 'var(--color-surface)', color: 'var(--color-text-hint)' };
-  const label = status === 'pending_signatures'
-    ? 'Pending signatures'
+  const label = STATUS_LABEL_KEYS[status]
+    ? t(STATUS_LABEL_KEYS[status])
     : status.charAt(0).toUpperCase() + status.slice(1);
   return (
     <span style={{

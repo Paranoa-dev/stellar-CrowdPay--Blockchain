@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../config/database');
 const { requireAuth } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
+const { sendErrorResponse } = require('../middleware/errorHandler');
 
 function isPlatformApprover(userId) {
   if (!process.env.PLATFORM_APPROVER_USER_ID) return false;
@@ -26,12 +27,12 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   const max = Math.min(parseInt(limit, 10) || 50, 200);
 
   if (!campaignId && !isPlatformApprover(req.user.userId)) {
-    return res.status(400).json({ error: 'campaign_id is required unless using a platform operator account' });
+    return sendErrorResponse(res, 400, 'campaign_id is required unless using a platform operator account');
   }
 
   if (campaignId) {
     const access = await assertCampaignReportingAccess(req, campaignId);
-    if (access.error) return res.status(access.status).json({ error: access.error });
+    if (access.error) return sendErrorResponse(res, access.status, access.error);
   }
 
   const params = [];
@@ -43,7 +44,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   const allowedStatuses = ['pending_signatures', 'submitted', 'indexed', 'failed'];
   if (status) {
     if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({ error: `status must be one of: ${allowedStatuses.join(', ')}` });
+      return sendErrorResponse(res, 400, `status must be one of: ${allowedStatuses.join(', ')}`);
     }
     params.push(status);
     where += ` AND st.status = $${params.length}`;
@@ -74,12 +75,12 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
      WHERE st.id = $1`,
     [req.params.id]
   );
-  if (!rows.length) return res.status(404).json({ error: 'Record not found' });
+  if (!rows.length) return sendErrorResponse(res, 404, 'Record not found');
 
   const row = rows[0];
   const isCreator = row.creator_id === req.user.userId;
   if (!isCreator && !isPlatformApprover(req.user.userId)) {
-    return res.status(403).json({ error: 'Not authorized' });
+    return sendErrorResponse(res, 403, 'Not authorized');
   }
 
   delete row.creator_id;
