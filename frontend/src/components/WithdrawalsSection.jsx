@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { getNetwork, signTransaction } from '@stellar/freighter-api';
 import { stellarExpertTxUrl } from '../config/stellar';
 import { useToast } from '../context/ToastContext';
+import { useDialog } from '../context/DialogContext';
 import RelativeTime from './RelativeTime';
 
 const ELIGIBLE = ['active', 'funded'];
@@ -21,6 +22,7 @@ function statusLabel(row, isExpired) {
 
 export default function WithdrawalsSection({ campaign, milestones = [], user, onReleased }) {
   const toast = useToast();
+  const dialog = useDialog();
   const [forbidden, setForbidden] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -481,13 +483,29 @@ export default function WithdrawalsSection({ campaign, milestones = [], user, on
                       type="button"
                       className="btn-secondary"
                       disabled={busyId === row.id}
-                      onClick={() =>
+                      onClick={async () => {
+                        const ok = await dialog.confirm({
+                          title: 'Cancel this withdrawal request?',
+                          danger: true,
+                          message:
+                            'The pending request will be cancelled and the unsigned transaction discarded. Nothing has been released yet; you can submit a new request afterwards.',
+                          summary: [
+                            {
+                              label: 'Amount',
+                              value: `${Number(row.amount).toLocaleString()} ${campaign.asset_type}`,
+                            },
+                            { label: 'Destination', value: row.destination_key, monospace: true },
+                          ],
+                          confirmLabel: 'Cancel request',
+                          cancelLabel: 'Keep request',
+                        });
+                        if (!ok) return;
                         runAction(
                           row.id,
                           () => api.cancelWithdrawal(row.id, { reason: 'Cancelled by creator' }),
                           'Withdrawal cancelled',
-                        )
-                      }
+                        );
+                      }}
                       style={{ fontSize: '0.8rem' }}
                     >
                       Cancel
@@ -603,13 +621,30 @@ export default function WithdrawalsSection({ campaign, milestones = [], user, on
                             type="button"
                             className="btn-primary"
                             disabled={busyId === row.id}
-                            onClick={() =>
+                            onClick={async () => {
+                              const ok = await dialog.confirm({
+                                title: 'Approve & release funds on-chain?',
+                                danger: true,
+                                message:
+                                  'This signs the withdrawal with the platform key and submits the transaction to the Stellar network. Funds leave the campaign wallet immediately and the release is irreversible.',
+                                summary: [
+                                  {
+                                    label: 'Amount',
+                                    value: `${Number(row.amount).toLocaleString()} ${campaign.asset_type}`,
+                                  },
+                                  { label: 'Destination', value: row.destination_key, monospace: true },
+                                  { label: 'Request ID', value: row.id },
+                                ],
+                                confirmLabel: 'Approve & submit',
+                                cancelLabel: 'Back',
+                              });
+                              if (!ok) return;
                               runAction(
                                 row.id,
                                 () => api.approveWithdrawalPlatform(row.id),
                                 'Withdrawal approved',
-                              )
-                            }
+                              );
+                            }}
                             style={{ fontSize: '0.8rem' }}
                           >
                             {busyId === row.id ? 'Approving…' : 'Admin approve & submit'}

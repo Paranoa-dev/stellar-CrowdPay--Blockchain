@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -7,6 +7,8 @@ export default function AcceptInvite() {
   const { id, token } = useParams();
   const { user, ready } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = location.pathname + location.search;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -43,10 +45,19 @@ export default function AcceptInvite() {
           You must be logged in to accept a campaign invitation.
         </p>
         <div style={{ display: 'flex', gap: '1rem' }}>
-          <Link to="/login" className="btn-primary" style={{ textDecoration: 'none', padding: '0.75rem 1.25rem' }}>
+          <Link
+            to="/login"
+            state={{ from }}
+            className="btn-primary"
+            style={{ textDecoration: 'none', padding: '0.75rem 1.25rem' }}
+          >
             Log in
           </Link>
-          <Link to="/register" className="btn-secondary" style={{ textDecoration: 'none', padding: '0.75rem 1.25rem' }}>
+          <Link
+            to="/register"
+            className="btn-secondary"
+            style={{ textDecoration: 'none', padding: '0.75rem 1.25rem' }}
+          >
             Create account
           </Link>
         </div>

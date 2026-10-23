@@ -124,12 +124,8 @@ describe('ContributeModal form', () => {
   });
 
   it('validates cumulative per-contributor cap', async () => {
-    api.getContributions.mockResolvedValue({
-      contributions: [{ sender_public_key: 'GUSER', amount: '30' }],
-    });
     const user = userEvent.setup();
-    renderModal({ max_per_user: '50' });
-    await waitFor(() => expect(api.getContributions).toHaveBeenCalled());
+    renderModal({ max_per_user: '50', user_contributed_amount: 30 });
     await user.type(amountInput(), '25');
     await user.click(screen.getByRole('button', { name: /confirm payment/i }));
     expect(
@@ -239,7 +235,8 @@ describe('ContributeModal custodial payment and finalization', () => {
     await submitCustodial();
     await advancePoll(1);
     expect(screen.getByRole('alert')).toHaveTextContent(/transaction failed on stellar/i);
-    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: /payment failed/i })).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it('keeps polling through finalization errors and stops after the attempt budget', async () => {
@@ -250,9 +247,9 @@ describe('ContributeModal custodial payment and finalization', () => {
     await submitCustodial();
     await advancePoll(15);
     expect(api.getContributionFinalization).toHaveBeenCalledTimes(15);
-    expect(screen.getByRole('heading', { name: /payment submitted/i })).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: /confirmation pending/i })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/could not confirm whether this transaction reached the stellar ledger/i);
+    expect(onSuccess).not.toHaveBeenCalled();
 
     await advancePoll(3);
     expect(api.getContributionFinalization).toHaveBeenCalledTimes(15);
