@@ -23,6 +23,11 @@
     "signUp": "S'inscrire",
     "yes": "Oui"
   },
+  "dialog": {
+    "confirm": "Confirmer",
+    "promptConfirm": "Envoyer",
+    "ok": "OK"
+  },
   "nav": {
     "startCampaign": "Lancer une campagne",
     "login": "Se connecter",
@@ -81,6 +86,29 @@
     "raised": "collectés",
     "backers": "{{pct}} % par {{count}} contributeurs",
     "goal": "Objectif : {{amount}} {{asset}}"
+  },
+  "forgotPassword": {
+    "title": "Mot de passe oublié ?",
+    "body": "Saisissez votre adresse e-mail et nous vous enverrons un lien pour réinitialiser votre mot de passe.",
+    "email": "E-mail",
+    "send": "Envoyer le lien",
+    "backToLogin": "Se connecter"
+  },
+  "resetPassword": {
+    "title": "Réinitialiser le mot de passe",
+    "body": "Saisissez votre nouveau mot de passe ci-dessous.",
+    "invalidTitle": "Lien invalide",
+    "invalidBody": "Ce lien de réinitialisation est invalide ou manque un jeton.",
+    "requestNew": "Demander un nouveau lien",
+    "newPassword": "Nouveau mot de passe",
+    "confirmPassword": "Confirmer le nouveau mot de passe",
+    "submit": "Réinitialiser le mot de passe",
+    "success": "Mot de passe réinitialisé avec succès ! Redirection vers la connexion...",
+    "errorMismatch": "Les mots de passe ne correspondent pas",
+    "errorTooShort": "Le mot de passe doit contenir au moins 8 caractères",
+    "errorLowercase": "Le mot de passe doit inclure une lettre minuscule",
+    "errorUppercase": "Le mot de passe doit inclure une lettre majuscule",
+    "errorNumber": "Le mot de passe doit inclure un chiffre"
   },
   "login": {
     "title": "Se connecter",
@@ -284,6 +312,9 @@
     "confirmingBody": "Votre paiement a été envoyé. Nous attendons sa confirmation sur le registre Stellar, ce qui prend généralement 3 à 5 secondes.",
     "paymentSubmitted": "Paiement envoyé",
     "paymentSubmittedBody": "Votre contribution est en route. Elle se confirme généralement en quelques secondes sur Stellar.",
+    "paymentFailed": "Échec du paiement",
+    "paymentPending": "Confirmation en attente",
+    "paymentPendingBody": "Nous n'avons pas pu confirmer si cette transaction a été inscrite au registre Stellar. Vérifiez la transaction avant de réessayer.",
     "transaction": "Transaction",
     "conversionSummary": "Résumé de conversion :",
     "anchorReference": "Référence d'ancrage :",
@@ -377,6 +408,11 @@
     "campaignEnded": "Campagne terminée",
     "campaignClosed": "Campagne fermée"
   },
+  "transactionStatus": {
+    "indexed": "Indexé",
+    "submitted": "Envoyé",
+    "failed": "Échoué",
+    "pendingSignatures": "Signatures en attente"
   "categories": {
     "technology": "Technologie",
     "community": "Communauté",

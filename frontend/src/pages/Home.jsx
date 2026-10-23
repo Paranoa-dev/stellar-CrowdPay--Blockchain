@@ -33,6 +33,7 @@ export default function Home() {
   const [hasMore, setHasMore] = useState(true);
   const [listError, setListError] = useState('');
   const { user } = useAuth();
+  const location = useLocation();
   const [showContributorTips, setShowContributorTips] = useState(isContributorOnboardingVisible);
   const [welcomeNewUser, setWelcomeNewUser] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -214,7 +215,11 @@ export default function Home() {
                 {t('home.createAccount')}
               </button>
             </Link>
-            <Link to="/login" style={{ flex: '1 1 140px', minWidth: '140px' }}>
+            <Link
+              to="/login"
+              state={{ from: location.pathname + location.search }}
+              style={{ flex: '1 1 140px', minWidth: '140px' }}
+            >
               <button type="button" className="btn-secondary" style={{ fontSize: '1rem', padding: '0.75rem 1.5rem', width: '100%' }}>
                 {t('login.title')}
               </button>

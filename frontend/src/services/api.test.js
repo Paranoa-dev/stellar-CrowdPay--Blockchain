@@ -162,7 +162,10 @@ describe('api transport', () => {
     });
     vi.stubGlobal('fetch', fetchFn);
 
-    await expect(api.getMe()).rejects.toThrow('Session expired. Please log in again.');
+    await expect(api.getMe()).rejects.toMatchObject({
+      message: 'Session expired. Please log in again.',
+      status: 401,
+    });
   });
 
   it('does not attempt refresh for public auth endpoints on 401', async () => {

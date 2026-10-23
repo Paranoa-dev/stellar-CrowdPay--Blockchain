@@ -78,7 +78,9 @@ async function request(method, path, body, options = {}) {
         await promise;
         return request(method, path, body, { ...options, _retry: true });
       } catch {
-        throw new Error("Session expired. Please log in again.");
+        const err = new Error("Session expired. Please log in again.");
+        err.status = res.status;
+        throw err;
       }
     }
   }
@@ -150,25 +152,27 @@ async function refresh() {
   }
 
   refreshPromise = (async () => {
-    const res = await fetch(`${BASE}/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-    });
+    try {
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
 
-    if (!res.ok) {
-      const text = await res.text();
-      let error = "Refresh failed";
-      try {
-        const data = JSON.parse(text);
-        error = data.error || error;
-      } catch {}
+      if (!res.ok) {
+        const text = await res.text();
+        let error = "Refresh failed";
+        try {
+          const data = JSON.parse(text);
+          error = data.error || error;
+        } catch {}
+        throw new Error(error);
+      }
+
+      const data = await res.json();
+      return data;
+    } finally {
       refreshPromise = null;
-      throw new Error(error);
     }
-
-    const data = await res.json();
-    refreshPromise = null;
-    return data;
   })();
 
   return refreshPromise;
@@ -335,6 +339,7 @@ export const api = {
   getAdminMilestones: (options = {}) => request('GET', '/admin/milestones', null, { query: options }),
   getAdminUsers: (include_banned = false) => request('GET', '/admin/users', null, { query: { include_banned: include_banned ? 'true' : 'false' } }),
   getAdminAuditLog: (options = {}) => request('GET', '/admin/audit-log', null, { query: options }),
+  getAdminDisputes: (options = {}) => request('GET', '/admin/disputes', null, { query: options }),
   updateCampaignStatus: (id, status) => request('PATCH', `/admin/campaigns/${id}/status`, { status }),
   adminSuspendCampaign: (id, body) => request('PATCH', `/admin/campaigns/${id}/suspend`, body),
   adminRestoreCampaign: (id) => request('PATCH', `/admin/campaigns/${id}/restore`, {}),

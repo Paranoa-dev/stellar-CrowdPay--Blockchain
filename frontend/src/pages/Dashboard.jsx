@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import KycPrompt from '../components/KycPrompt';
@@ -30,6 +30,7 @@ function formatConversionRate(row) {
 
 export default function Dashboard() {
   const { user, token, ready, updateUser } = useAuth();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const activeTab = tabParam === 'contributions' ? 'contributions' : 'campaigns';
@@ -88,6 +89,26 @@ export default function Dashboard() {
     }
   }
 
+  function handleTablistKeyDown(e) {
+    const currentIndex = TABS.findIndex((tab) => tab.id === activeTab);
+    let nextIndex = currentIndex;
+    if (e.key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % TABS.length;
+    } else if (e.key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + TABS.length) % TABS.length;
+    } else if (e.key === 'Home') {
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      nextIndex = TABS.length - 1;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    const nextTab = TABS[nextIndex];
+    if (nextTab.id !== activeTab) setTab(nextTab.id);
+    document.getElementById(`tab-${nextTab.id}`)?.focus();
+  }
+
   if (!ready) {
     return (
       <main className="container" style={{ paddingTop: '2rem', paddingBottom: '3rem' }}>
@@ -95,7 +116,15 @@ export default function Dashboard() {
       </main>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location.pathname + location.search }}
+      />
+    );
+  }
 
   const loading = activeTab === 'campaigns' ? loadingCampaigns : loadingContributions;
 
@@ -140,6 +169,7 @@ export default function Dashboard() {
       <div
         role="tablist"
         aria-label="Dashboard sections"
+        onKeyDown={handleTablistKeyDown}
         style={{
           display: 'flex',
           gap: '0.5rem',
@@ -151,9 +181,12 @@ export default function Dashboard() {
         {TABS.map((tab) => (
           <button
             key={tab.id}
+            id={`tab-${tab.id}`}
             type="button"
             role="tab"
             aria-selected={activeTab === tab.id}
+            aria-controls={`panel-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
             onClick={() => setTab(tab.id)}
             style={{
               padding: '0.5rem 1rem',
@@ -174,7 +207,12 @@ export default function Dashboard() {
       {error && <p className="alert alert--error">{error}</p>}
 
       {activeTab === 'campaigns' && (
-        <section role="tabpanel" aria-labelledby="tab-campaigns">
+        <section
+          id="panel-campaigns"
+          role="tabpanel"
+          aria-labelledby="tab-campaigns"
+          tabIndex={0}
+        >
           {loading ? (
             <p style={{ color: 'var(--color-text-hint)' }}>Loading your campaigns...</p>
           ) : !isCreator ? (
@@ -338,7 +376,12 @@ export default function Dashboard() {
       )}
 
       {activeTab === 'contributions' && (
-        <section role="tabpanel" aria-labelledby="tab-contributions">
+        <section
+          id="panel-contributions"
+          role="tabpanel"
+          aria-labelledby="tab-contributions"
+          tabIndex={0}
+        >
           {loading ? (
             <p style={{ color: 'var(--color-text-hint)' }}>Loading your contributions...</p>
           ) : contributions.length === 0 ? (

@@ -24,7 +24,7 @@ pub enum DataKey {
     IsInitialized,
     Paused,
     PendingAdmin,
-    UpgradeWasmHash,
+    Version,
 }
 
 #[contract]
@@ -72,6 +72,7 @@ impl EscrowContract {
         if amount <= 0 {
             panic!("Invalid amount");
         }
+        Self::require_not_paused(&env);
 
         let deadline: u64 = env.storage().instance().get(&DataKey::Deadline).unwrap();
         if env.ledger().timestamp() >= deadline {
@@ -106,6 +107,7 @@ impl EscrowContract {
         if amount <= 0 {
             panic!("Invalid amount");
         }
+        Self::require_not_paused(&env);
 
         let deadline: u64 = env.storage().instance().get(&DataKey::Deadline).unwrap();
         let total_raised: i128 = env.storage().instance().get(&DataKey::TotalRaised).unwrap_or(0);
@@ -135,6 +137,130 @@ impl EscrowContract {
             (symbol_short!("withdraw"), to),
             amount,
         );
+    }
+
+    /// Approve a withdrawal. Only allowed once the campaign has succeeded
+    /// (target reached); failed campaigns must remain refundable.
+    pub fn approve_withdrawal(env: Env, release_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let total_raised: i128 = env.storage().instance().get(&DataKey::TotalRaised).unwrap_or(0);
+        let target: i128 = env.storage().instance().get(&DataKey::Target).unwrap();
+        if total_raised < target {
+            panic!("Campaign has not succeeded");
+        }
+
+        let current_approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        let approved = current_approved + release_amount;
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &approved);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("approve"), admin),
+            release_amount,
+        );
+    }
+
+    /// Revoke a previously granted approval. Admin-only and bounded by the
+    /// currently approved amount.
+    pub fn revoke_withdrawal(env: Env, release_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        if release_amount <= 0 {
+            panic!("Amount must be positive");
+        }
+        let approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        if release_amount > approved {
+            panic!("Cannot revoke more than approved");
+        }
+
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("revoke"), admin),
+            release_amount,
+        );
+    }
+
+    pub fn execute_withdrawal(env: Env, to: Address, release_amount: i128) {
+        let approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        if approved < release_amount {
+            panic!("Insufficient approved amount");
+        }
+
+        let asset: Address = env.storage().instance().get(&DataKey::Asset).unwrap();
+        let client = token::Client::new(&env, &asset);
+        client.transfer(&env.current_contract_address(), &to, &release_amount);
+
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("withdraw"), to),
+            release_amount,
+        );
+    }
+
+    /// Propose a new admin. The change only takes effect once the nominee
+    /// accepts, preventing a typo or compromised key from bricking the escrow.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::PendingAdmin, &new_admin);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+    }
+
+    /// Accept a pending admin nomination. Must be called by the nominee.
+    pub fn accept_admin(env: Env) {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .expect("No pending admin");
+        pending.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+    }
+
+    /// Freeze/unfreeze deposits and withdrawals during an incident.
+    pub fn set_paused(env: Env, paused: bool) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &paused);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+    }
+
+    /// Record a schema/migration version. Soroban has no in-place Wasm upgrade;
+    /// upgrades are performed by pointing a contract registry at a new contract
+    /// id and calling this entrypoint to record the transition.
+    pub fn migrate(env: Env, version: u32) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        let current: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(0);
+        if version <= current {
+            panic!("Version must increase");
+        }
+        env.storage().instance().set(&DataKey::Version, &version);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+    }
+
+    pub fn get_version(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::Version).unwrap_or(0)
+    }
+
+    fn require_not_paused(env: &Env) {
+        let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
+        if paused {
+            panic!("Contract is paused");
+        }
     }
 
     pub fn approve_milestone_withdrawal(env: Env, caller: Address, amount: i128) {
@@ -272,7 +398,8 @@ impl EscrowContract {
             panic!("No contribution to refund");
         }
 
-        // CEI Fix (Issue #215): Update state BEFORE external call
+        // Checks-effects-interactions: clear the contributor's balance and
+        // reduce the total before handing control to the token contract.
         let new_total = total_raised.saturating_sub(amount);
         env.storage().instance().set(&DataKey::TotalRaised, &new_total);
         env.storage().persistent().set(&balance_key, &0i128);

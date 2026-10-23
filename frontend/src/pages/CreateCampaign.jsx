@@ -71,7 +71,7 @@ export default function CreateCampaign() {
   useEffect(() => {
     if (!user) return;
     api.getMe().then(updateUser).catch(() => {});
-  }, [user, updateUser]);
+  }, [user?.id, updateUser]);
 
   function setField(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));

@@ -6,14 +6,12 @@ import {
   requestAccess,
   signTransaction,
 } from '@stellar/freighter-api';
-import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { stellarExpertTxUrl } from '../config/stellar';
 import { calculateFee } from '../lib/amounts';
 
 export default function ContributeModal({ campaign, onClose, onSuccess, guestFreighterMode = false }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
   const [amount, setAmount] = useState('');
   const [sendAsset, setSendAsset] = useState(campaign.asset_type);
   const [paymentMethod, setPaymentMethod] = useState(guestFreighterMode ? 'freighter' : 'custodial');
@@ -29,13 +27,30 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
   const [phase, setPhase] = useState('form');
   const [result, setResult] = useState(null);
   const [feeBps, setFeeBps] = useState(0);
+  const [feePreview, setFeePreview] = useState(null);
+  const [feeError, setFeeError] = useState(null);
 
   useEffect(() => {
     api.getPlatformConfig().then((cfg) => setFeeBps(cfg.platform_fee_bps || 0)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!feeBps || !destAmount || Number(destAmount) <= 0) {
+      setFeePreview(null);
+      setFeeError(null);
+      return;
+    }
+    try {
+      const { feeAmount: feeAmt, netAmount: netAmt } = calculateFee(destAmount, feeBps);
+      setFeePreview({ feeAmount: feeAmt, netAmount: netAmt });
+      setFeeError(null);
+    } catch (err) {
+      setFeePreview(null);
+      setFeeError(err.message || t('contribute.enterAmount'));
+    }
+  }, [destAmount, feeBps, t]);
   const [freighterAvailable, setFreighterAvailable] = useState(false);
   const [freighterChecked, setFreighterChecked] = useState(false);
-  const [existingContributions, setExistingContributions] = useState([]);
   const [displayName, setDisplayName] = useState('');
   const anchorPopupRef = useRef(null);
 
@@ -53,11 +68,17 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
   const isPathPayment = effectiveSendAsset !== campaign.asset_type;
   const destAmount = amount.trim();
 
+  // Authoritative cumulative contribution total for the current user, returned
+  // by the backend on the campaign payload. The per-user limit is enforced
+  // against this total — never by summing a paginated contributions list (#176).
+  const contributedSoFar = Number(campaign.user_contributed_amount) || 0;
+  const perUserRemaining = campaign.max_per_user
+    ? Math.max(0, Number(campaign.max_per_user) - contributedSoFar)
+    : 0;
 
-  // Fetch anchor info and existing contributions on mount
+  // Fetch anchor info on mount (the per-user cap total comes from the campaign payload)
   useEffect(() => {
     api.getAnchorInfo().then(setAnchorInfo).catch(() => {});
-    api.getContributions(campaign.id, { limit: 100 }).then((d) => setExistingContributions(d.contributions || [])).catch(() => {});
   }, [campaign.id]);
 
   // Check Freighter availability
@@ -342,15 +363,12 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
       return;
     }
     if (campaign.max_per_user) {
-      const existingSum = user?.wallet_public_key
-        ? existingContributions
-            .filter((c) => c.sender_public_key === user.wallet_public_key)
-            .reduce((sum, c) => sum + Number(c.amount), 0)
-        : 0;
-      if (existingSum + amountNum > Number(campaign.max_per_user)) {
+      const existingSum = contributedSoFar;
+      const maxPerUser = Number(campaign.max_per_user);
+      if (existingSum + amountNum > maxPerUser) {
         setError(t('contribute.aboveMaximumPerUser', {
           existing: existingSum,
-          limit: campaign.max_per_user,
+          limit: maxPerUser,
           asset: campaign.asset_type,
         }));
         return;
@@ -385,19 +403,15 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
               return;
             }
             if (finalizationResult.finalization_status === 'failed') {
-              setPhase('success');
+              setPhase('failed');
               setError(t('contribute.finalizationFailed'));
-              onSuccess();
               return;
             }
           } catch {
             // Keep polling on error
           }
         }
-        // Timeout: show success screen but allow user to view on Stellar Expert
-        setPhase('success');
-        setError(null);
-        onSuccess();
+        setPhase('pending');
       };
       
       pollFinalization(data.tx_hash);
@@ -597,29 +611,21 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
                         {campaign.max_contribution && (
                           <li>{t('contribute.limitMax', { amount: Number(campaign.max_contribution).toLocaleString(), asset: campaign.asset_type })}</li>
                         )}
-                        {campaign.max_per_user && (() => {
-                          const existingSum = user?.wallet_public_key
-                            ? existingContributions
-                                .filter((c) => c.sender_public_key === user.wallet_public_key)
-                                .reduce((sum, c) => sum + Number(c.amount), 0)
-                            : 0;
-                          const remaining = Math.max(0, Number(campaign.max_per_user) - existingSum);
-                          return (
-                            <li>
-                              {existingSum > 0
-                                ? t('contribute.limitPerUserRemaining', {
-                                    amount: Number(campaign.max_per_user).toLocaleString(),
-                                    asset: campaign.asset_type,
-                                    existing: existingSum.toLocaleString(),
-                                    remaining: remaining.toLocaleString(),
-                                  })
-                                : t('contribute.limitPerUser', {
-                                    amount: Number(campaign.max_per_user).toLocaleString(),
-                                    asset: campaign.asset_type,
-                                  })}
-                            </li>
-                          );
-                        })()}
+                        {campaign.max_per_user && (
+                          <li>
+                            {contributedSoFar > 0
+                              ? t('contribute.limitPerUserRemaining', {
+                                  amount: Number(campaign.max_per_user).toLocaleString(),
+                                  asset: campaign.asset_type,
+                                  existing: contributedSoFar.toLocaleString(),
+                                  remaining: perUserRemaining.toLocaleString(),
+                                })
+                              : t('contribute.limitPerUser', {
+                                  amount: Number(campaign.max_per_user).toLocaleString(),
+                                  asset: campaign.asset_type,
+                                })}
+                          </li>
+                        )}
                       </ul>
                     </span>
                   )}
@@ -703,20 +709,19 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
 
               {feeBps > 0 && destAmount && Number(destAmount) > 0 && (
                 <div className="alert alert--info" style={{ marginTop: '0.85rem', fontSize: '0.875rem' }} role="status">
-                  {(() => {
-                    const { feeAmount: feeAmt, netAmount: netAmt } = calculateFee(destAmount, feeBps);
-                    return (
-                      <>
-                        <strong>{t('contribute.platformFee')}</strong>{' '}
-                        {t('contribute.feeDetail', {
-                          pct: feeBps / 100,
-                          fee: feeAmt,
-                          asset: campaign.asset_type,
-                          net: netAmt,
-                        })}
-                      </>
-                    );
-                  })()}
+                  {feeError ? (
+                    <p style={{ color: 'var(--color-danger-text, #dc2626)' }}>{feeError}</p>
+                  ) : feePreview ? (
+                    <>
+                      <strong>{t('contribute.platformFee')}</strong>{' '}
+                      {t('contribute.feeDetail', {
+                        pct: feeBps / 100,
+                        fee: feePreview.feeAmount,
+                        asset: campaign.asset_type,
+                        net: feePreview.netAmount,
+                      })}
+                    </>
+                  ) : null}
                 </div>
               )}
 
@@ -779,6 +784,36 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
               >
                 {t('contribute.reopenDepositWindow')}
               </button>
+            )}
+            <button type="button" className="btn-primary" style={{ width: '100%' }} onClick={handleClose}>
+              {t('common.close')}
+            </button>
+          </div>
+        ) : phase === 'failed' || phase === 'pending' ? (
+          <div>
+            <h2 id="contribute-title" style={styles.title}>
+              {phase === 'failed' ? t('contribute.paymentFailed') : t('contribute.paymentPending')}
+            </h2>
+            <p
+              className={`alert ${phase === 'failed' ? 'alert--error' : 'alert--info'}`}
+              style={{ marginBottom: '1rem' }}
+              role={phase === 'failed' ? 'alert' : 'status'}
+            >
+              {phase === 'failed'
+                ? error
+                : t('contribute.paymentPendingBody')}
+            </p>
+            {result?.tx_hash && (
+              <p style={{ fontSize: '0.875rem', marginBottom: '1rem', wordBreak: 'break-all', textAlign: 'center' }}>
+                <a
+                  href={stellarExpertTxUrl(result.tx_hash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: 'var(--color-accent)', fontWeight: 600 }}
+                >
+                  {t('contribute.viewTransactionOnStellarExpert')}
+                </a>
+              </p>
             )}
             <button type="button" className="btn-primary" style={{ width: '100%' }} onClick={handleClose}>
               {t('common.close')}
@@ -882,7 +917,7 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
                         url: `${window.location.origin}/campaigns/${campaign.id}`,
                       })
                     );
-                    window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank');
+                    window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank', 'noopener,noreferrer');
                   }}
                 >
                   {t('contribute.shareOnX')}
@@ -898,7 +933,7 @@ export default function ContributeModal({ campaign, onClose, onSuccess, guestFre
                         url: `${window.location.origin}/campaigns/${campaign.id}`,
                       })
                     );
-                    window.open(`https://wa.me/?text=${text}`, '_blank');
+                    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer');
                   }}
                 >
                   {t('contribute.whatsapp')}

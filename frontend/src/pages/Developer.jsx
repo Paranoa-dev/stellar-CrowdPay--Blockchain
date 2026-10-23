@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 
@@ -14,6 +14,7 @@ const SCOPE_OPTIONS = ['read', 'write', 'withdrawals', 'developer', 'full'];
 
 export default function Developer() {
   const { user } = useAuth();
+  const location = useLocation();
   const [keys, setKeys] = useState([]);
   const [hooks, setHooks] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
@@ -51,7 +52,12 @@ export default function Developer() {
   if (!user) {
     return (
       <main className="container" style={{ paddingTop: '4rem', maxWidth: '720px' }}>
-        <p><Link to="/login">Log in</Link> to manage API keys and webhooks.</p>
+        <p>
+          <Link to="/login" state={{ from: location.pathname + location.search }}>
+            Log in
+          </Link>{' '}
+          to manage API keys and webhooks.
+        </p>
       </main>
     );
   }
